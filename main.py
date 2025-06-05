@@ -6,12 +6,14 @@
 from typing import Optional
 import discord
 from discord.ext import commands
-from discord import app_commands
-from discord.ui import Button, View
+#from discord import app_commands
+#from discord.ui import Button, View
 import logging
 from dotenv import load_dotenv
 import json
 import os
+
+import random
 
 import webserver
 
@@ -48,6 +50,7 @@ tree = client.tree
 user_entities = {}
 
 DATA_FILE = "user_entities.json"
+DATA_FILE2 = "output_channel.json"
 
 # Load data on startup
 if os.path.exists(DATA_FILE):
@@ -74,6 +77,8 @@ async def on_ready():
 @tree.command(name='ping', description="sdfjhfkds")
 async def ping(interaction: discord.Interaction):
     await interaction.response.send_message(f"Pong!")
+
+#_______
 
 @tree.command(name="get_information_format", description="See how create_entity formats input")
 async def get_format(interaction: discord.Interaction):
@@ -255,6 +260,22 @@ async def delete_all(interaction: discord.Interaction, confirm: str):
         await interaction.response.send_message("Input does not match; entities have not been deleted.")
 
 #--------------------
+
+@client.tree.command(name="dice_roll", description="Roll a dice")
+@discord.app_commands.describe(
+    dice_type="The dice type/max number to roll",
+    num_dice="Number of dice to roll"
+)
+async def dice_roll(interaction: discord.Interaction, dice_type: int, num_dice: int = 1):
+    results = []
+    for _ in range(num_dice):
+        roll = random.randint(1, dice_type)
+        results.append(roll)
+
+    # Convert rolls to string, separated by commas
+    rolls_str = " ".join(f"`{r}`" for r in results)
+    await interaction.response.send_message(f"You rolled {num_dice}d{dice_type}: {rolls_str}")
+
 
 
 webserver.keep_alive()
