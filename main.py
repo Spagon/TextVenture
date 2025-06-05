@@ -83,8 +83,6 @@ def save_data_to_jsonbin():
     except Exception as e:
         print(f"Error saving data to jsonbin: {e}")
 
-user_entities = load_data_from_jsonbin()
-
 # In-memory storage dictionary: user_id -> data dict
 # user_entities = {}
 
