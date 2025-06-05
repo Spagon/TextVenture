@@ -16,12 +16,17 @@ import os
 import random
 
 import webserver
+import requests
 
 load_dotenv()
-token = os.getenv("DISCORD_TOKEN", None)
+TOKEN = os.getenv("DISCORD_TOKEN", None)
+JSONBIN_API_KEY = os.getenv("JSONBIN_API_KEY")
+JSONBIN_BIN_ID = os.getenv("JSONBIN_BIN_ID")
 # Note: client.run(token) only works if the following is included:
-if token is None:
+if TOKEN is None:
     raise RuntimeError("DISCORD_TOKEN not found in .env")
+if not JSONBIN_API_KEY or not JSONBIN_BIN_ID:
+    raise RuntimeError("JSONBIN_API_KEY or JSONBIN_BIN_ID not found in .env")
 
 # basic logging
 handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w') # 'w' stands for write mode
@@ -46,28 +51,62 @@ tree = client.tree
 
 #token = os.getenv("DISCORD_TOKEN")
 
-# In-memory storage dictionary: user_id -> data dict
+JSONBIN_BASE_URL = f"https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}"
+HEADERS = {
+    "X-Master-Key": JSONBIN_API_KEY,
+    "Content-Type": "application/json"
+}
+
 user_entities = {}
 
-DATA_FILE = "user_entities.json"
-DATA_FILE2 = "output_channel.json"
-
-# Load data on startup
-if os.path.exists(DATA_FILE):
+def load_data_from_jsonbin():
     try:
-        with open(DATA_FILE, "r") as f:
-            user_entities = json.load(f)
-            # convert keys back to int
-            user_entities = {int(k): v for k, v in user_entities.items()}
-    except json.JSONDecodeError:
-        user_entities = {}
-else:
-    user_entities = {}
+        response = requests.get(JSONBIN_BASE_URL + "/latest", headers=HEADERS)
+        response.raise_for_status()
+        data = response.json()
+        # The actual data is inside data['record']
+        entities = data.get("record", {})
+        # convert keys back to int (json keys are strings)
+        return {int(k): v for k, v in entities.items()}
+    except Exception as e:
+        print(f"Error loading data from jsonbin: {e}")
+        return {}
 
-# Save data function
-def save_data():
-    with open(DATA_FILE, "w") as f:
-        json.dump(user_entities, f)
+# Load on startup
+user_entities = load_data_from_jsonbin()
+
+def save_data_to_jsonbin():
+    try:
+        # jsonbin expects the whole JSON object
+        response = requests.put(JSONBIN_BASE_URL, headers=HEADERS, json=user_entities)
+        response.raise_for_status()
+    except Exception as e:
+        print(f"Error saving data to jsonbin: {e}")
+
+user_entities = load_data_from_jsonbin()
+
+# In-memory storage dictionary: user_id -> data dict
+# user_entities = {}
+
+# DATA_FILE = "user_entities.json"
+# DATA_FILE2 = "output_channel.json"
+
+# # Load data on startup
+# if os.path.exists(DATA_FILE):
+#     try:
+#         with open(DATA_FILE, "r") as f:
+#             user_entities = json.load(f)
+#             # convert keys back to int
+#             user_entities = {int(k): v for k, v in user_entities.items()}
+#     except json.JSONDecodeError:
+#         user_entities = {}
+# else:
+#     user_entities = {}
+
+# # Save data function
+# def save_data():
+#     with open(DATA_FILE, "w") as f:
+#         json.dump(user_entities, f)
 
 @client.event
 async def on_ready():
@@ -114,7 +153,8 @@ async def create_entity(interaction: discord.Interaction, name: str, icon: str, 
     user_list = user_entities.setdefault(interaction.user.id, [])
     user_list.append(entity)
     await interaction.response.send_message(f"Entity '{name}' saved! You now have {len(user_list)} entities.")
-    save_data()
+    #save_data()
+    save_data_to_jsonbin()
 
 #-------------
 
@@ -206,7 +246,8 @@ async def modify_entity(
         await interaction.response.send_message("No updates provided.")
         return
 
-    save_data()
+    #save_data()
+    save_data_to_jsonbin()
     await interaction.response.send_message("✅ Entity updated:\n" + "\n".join(updates))
 
 # -------------
@@ -236,7 +277,8 @@ async def delete_entity(interaction: discord.Interaction, name: str, confirm: st
         return
 
     await interaction.response.send_message(f"Entity '{name}' has been deleted.")
-    save_data()
+    #save_data()
+    save_data_to_jsonbin()
 
 # -----------
 
@@ -254,7 +296,8 @@ async def delete_all(interaction: discord.Interaction, confirm: str):
         if interaction.user.id in user_entities:
             del user_entities[interaction.user.id]
             await interaction.response.send_message("All entities have been deleted.")
-            save_data()
+            #save_data()
+            save_data_to_jsonbin()
 
     else:
         await interaction.response.send_message("Input does not match; entities have not been deleted.")
@@ -279,7 +322,7 @@ async def dice_roll(interaction: discord.Interaction, dice_type: int, num_dice: 
 
 
 webserver.keep_alive()
-client.run(token)
+client.run(TOKEN)
 
 
 
