@@ -21,12 +21,13 @@ import requests
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN", None)
 JSONBIN_API_KEY = os.getenv("JSONBIN_API_KEY")
-JSONBIN_BIN_ID = os.getenv("JSONBIN_BIN_ID")
+JSONBIN_ENTITIES = os.getenv("JSONBIN_ENTITIES")
+JSONBIN_BATTLEFIELD = os.getenv("JSONBIN_BATTLEFIELD")
 # Note: client.run(token) only works if the following is included:
 if TOKEN is None:
     raise RuntimeError("DISCORD_TOKEN not found in .env")
-if not JSONBIN_API_KEY or not JSONBIN_BIN_ID:
-    raise RuntimeError("JSONBIN_API_KEY or JSONBIN_BIN_ID not found in .env")
+if not JSONBIN_API_KEY or not JSONBIN_ENTITIES or not JSONBIN_BATTLEFIELD:
+    raise RuntimeError("jsonbin value not found in .env")
 
 # basic logging
 handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w') # 'w' stands for write mode
@@ -51,15 +52,22 @@ tree = client.tree
 
 #token = os.getenv("DISCORD_TOKEN")
 
-JSONBIN_BASE_URL = f"https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}"
+JSONBIN_BASE_URL = f"https://api.jsonbin.io/v3/b/{JSONBIN_ENTITIES}"
+HEADERS = {
+    "X-Master-Key": JSONBIN_API_KEY,
+    "Content-Type": "application/json"
+}
+
+JSONBIN_BATTLE_URL = f"https://api.jsonbin.io/v3/b/{JSONBIN_BATTLEFIELD}"
 HEADERS = {
     "X-Master-Key": JSONBIN_API_KEY,
     "Content-Type": "application/json"
 }
 
 user_entities = {}
+battlefield_entities = {}
 
-def load_data_from_jsonbin():
+def load_entities_from_jsonbin():
     try:
         response = requests.get(JSONBIN_BASE_URL + "/latest", headers=HEADERS)
         response.raise_for_status()
@@ -71,14 +79,49 @@ def load_data_from_jsonbin():
     except Exception as e:
         print(f"Error loading data from jsonbin: {e}")
         return {}
+    
+# def load_saved_output_channel():
+#     try:
+#         response = requests.get(JSONBIN_BASE_URL + "/latest", headers=HEADERS)
+#         response.raise_for_status()
+#         data = response.json()
+#         return data.get("record", {})
+#     except Exception as e:
+#         print(f"Error loading data from jsonbin: {e}")
+#         return {}
+
+def load_battlefield():
+    try:
+        response = requests.get(JSONBIN_BATTLE_URL + "/latest", headers=HEADERS)
+        response.raise_for_status()
+        data = response.json()
+        # The actual data is inside data['record']
+        entities = data.get("record", {})
+        # convert keys back to int (json keys are strings)
+        return {int(k): v for k, v in entities.items()}
+    except Exception as e:
+        print(f"Error loading data from jsonbin: {e}")
+        return {}
+
 
 # Load on startup
-user_entities = load_data_from_jsonbin()
+user_entities = load_entities_from_jsonbin()
+battlefield = load_battlefield()
+
+# channel_id = load_saved_output_channel()
 
 def save_data_to_jsonbin():
     try:
         # jsonbin expects the whole JSON object
         response = requests.put(JSONBIN_BASE_URL, headers=HEADERS, json=user_entities)
+        response.raise_for_status()
+    except Exception as e:
+        print(f"Error saving data to jsonbin: {e}")
+
+def save_battlefield_to_jsonbin():
+    try:
+        # jsonbin expects the whole JSON object
+        response = requests.put(JSONBIN_BATTLE_URL, headers=HEADERS, json=battlefield)
         response.raise_for_status()
     except Exception as e:
         print(f"Error saving data to jsonbin: {e}")
@@ -160,13 +203,13 @@ async def create_entity(interaction: discord.Interaction, name: str, icon: str, 
 async def list_entities(interaction: discord.Interaction):
     entities = user_entities.get(interaction.user.id)
     if not entities:
-        await interaction.response.send_message("You have no saved entities yet. Use /create_entity to add one.")
+        await interaction.response.send_message("You have no saved entities yet. Use /create_entity to add one.", ephemeral=True)
         return
 
     response = ""
     for i, e in enumerate(entities, start=1):
         response += f"{i}.\t{e['name']}[{e['icon']}]\n"  # Only names here
-    await interaction.response.send_message(response)
+    await interaction.response.send_message(response, ephemeral=True)
 
 #-------------
 
@@ -175,13 +218,13 @@ async def list_entities(interaction: discord.Interaction):
 async def get_entity(interaction: discord.Interaction, name: str):
     entities = user_entities.get(interaction.user.id)
     if not entities:
-        await interaction.response.send_message("You have no saved entities yet.")
+        await interaction.response.send_message("You have no saved entities yet.", ephemeral=True)
         return
 
     # Search for entity with matching name (case insensitive)
     entity = next((e for e in entities if e["name"].lower() == name.lower()), None)
     if not entity:
-        await interaction.response.send_message(f"No entity found with name '{name}'.")
+        await interaction.response.send_message(f"No entity found with name '{name}'.", ephemeral=True)
         return
 
     await interaction.response.send_message(
@@ -214,12 +257,12 @@ async def modify_entity(
 ):
     entities = user_entities.get(interaction.user.id)
     if not entities:
-        await interaction.response.send_message("You have no saved entities.")
+        await interaction.response.send_message("You have no saved entities.", ephemeral=True)
         return
 
     entity = next((e for e in entities if e["name"].lower() == name.lower()), None)
     if not entity:
-        await interaction.response.send_message(f"No entity found with name '{name}'.")
+        await interaction.response.send_message(f"No entity found with name '{name}'.", ephemeral=True)
         return
 
     updates = []
@@ -241,7 +284,7 @@ async def modify_entity(
         entity["desc"] = new_desc
 
     if not updates:
-        await interaction.response.send_message("No updates provided.")
+        await interaction.response.send_message("No updates provided.", ephemeral=True)
         return
 
     #save_data()
@@ -258,23 +301,23 @@ async def modify_entity(
 async def delete_entity(interaction: discord.Interaction, name: str, confirm: str):
     entities = user_entities.get(interaction.user.id)
     if not entities:
-        await interaction.response.send_message("You have no saved entities.")
+        await interaction.response.send_message("You have no saved entities.", ephemeral=True)
         return
 
     # Find the entity by exact name
     entity = next((e for e in entities if e["name"] == name), None)
 
     if not entity:
-        await interaction.response.send_message(f"No entity found with name '{name}'.")
+        await interaction.response.send_message(f"No entity found with name '{name}'.", ephemeral=True)
         return
 
     if name == confirm:
         entities.remove(entity)
     else:
-        await interaction.response.send_message(f"Names do not match; no entity has been deleted.")
+        await interaction.response.send_message(f"Names do not match; no entity has been deleted.", ephemeral=True)
         return
 
-    await interaction.response.send_message(f"Entity '{name}' has been deleted.")
+    await interaction.response.send_message(f"Entity '{name}' has been deleted.", ephemeral=True)
     #save_data()
     save_data_to_jsonbin()
 
@@ -288,17 +331,17 @@ async def delete_all(interaction: discord.Interaction, confirm: str):
     if confirm == "DELETE ALL":
         entities = user_entities.get(interaction.user.id)
         if not entities:
-            await interaction.response.send_message("You have no saved entities yet. Use /create_entity to add one.")
+            await interaction.response.send_message("You have no saved entities yet. Use /create_entity to add one.", ephemeral=True)
             return
 
         if interaction.user.id in user_entities:
             del user_entities[interaction.user.id]
-            await interaction.response.send_message("All entities have been deleted.")
+            await interaction.response.send_message("All entities have been deleted.", ephemeral=True)
             #save_data()
             save_data_to_jsonbin()
 
     else:
-        await interaction.response.send_message("Input does not match; entities have not been deleted.")
+        await interaction.response.send_message("Input does not match; entities have not been deleted.", ephemeral=True)
 
 #--------------------
 
@@ -317,7 +360,104 @@ async def dice_roll(interaction: discord.Interaction, dice_type: int, num_dice: 
     rolls_str = " ".join(f"`{r}`" for r in results)
     await interaction.response.send_message(f"You rolled {num_dice}d{dice_type}: {rolls_str}")
 
+#---------------
 
+@client.tree.command(name="load_entity_into_battle", description="Load an entity onto the battlefield")
+@discord.app_commands.describe(
+    name="Load an entity from name",
+    current_hp="The entity's current health"
+)
+async def load_entity(interaction: discord.Interaction, name: str, current_hp: Optional[int] = None):
+    user_id = interaction.user.id
+    entities = user_entities.get(user_id)
+
+    if not entities:
+        await interaction.response.send_message("You have no saved entities.", ephemeral=True)
+        return
+
+    # Find the entity by exact name
+    entity = next((e for e in entities if e["name"] == name), None)
+
+    if not entity:
+        await interaction.response.send_message(f"No entity found with name '{name}'.", ephemeral=True)
+        return
+
+    # Use the provided current_hp or the entity's default hp
+    battle_entity = {
+        "name": entity["name"],
+        "icon": entity["icon"],
+        "hp": current_hp if current_hp is not None else entity["hp"]
+    }
+
+    dupe_count = 0
+
+    for i, e in enumerate(entities, start=1):
+        if battle_entity['name'] == e['name']:
+            dupe_count += 1
+
+    if dupe_count != 0:
+        battle_entity["name"].append("({dupe_count})")
+
+    # Add to battlefield list (e.g., per user or globally)
+    if user_id not in battlefield_entities:
+        battlefield_entities[user_id] = []
+    battlefield_entities[user_id].append(battle_entity)
+
+    await interaction.response.send_message(
+        f"Entity **{battle_entity['name']}** loaded into battle with {battle_entity['hp']} HP!",
+        ephemeral=True
+    )
+    
+    # @tree.command(name="create_entity", description="Create an entity")
+    # @discord.app_commands.describe(
+        # name="Entity name",
+        # icon="Entity icon/emoji",
+        # hp="Entity health",
+        # atk="Entity attacks and damage",
+        # desc="Entity description"
+    # )
+    # async def create_entity(interaction: discord.Interaction, name: str, icon: str, hp: int, atk: str, desc: str):
+    # user_list = user_entities.setdefault(interaction.user.id, [])
+    # for e in user_list:
+    #     if e['name'].lower() == name.lower():
+    #         await interaction.response.send_message("You can not have two entities with the same name.")
+    #         return
+    # entity = {
+    #     "name": name,
+    #     "icon": icon,
+    #     "hp": hp,
+    #     "atk": atk,
+    #     "desc": desc
+    # }
+    # user_list = user_entities.setdefault(interaction.user.id, [])
+    # user_list.append(entity)
+    # await interaction.response.send_message(f"Entity '{name}' saved! You now have {len(user_list)} entities.")
+    # #save_data()
+    # save_data_to_jsonbin()
+    
+#-------------
+
+# @tree.command(name="get_entity", description="Get an entity by name")
+# @discord.app_commands.describe(name="The name of the entity to retrieve")
+# async def get_entity(interaction: discord.Interaction, name: str):
+#     entities = user_entities.get(interaction.user.id)
+#     if not entities:
+#         await interaction.response.send_message("You have no saved entities yet.", ephemeral=True)
+#         return
+
+#     # Search for entity with matching name (case insensitive)
+#     entity = next((e for e in entities if e["name"].lower() == name.lower()), None)
+#     if not entity:
+#         await interaction.response.send_message(f"No entity found with name '{name}'.", ephemeral=True)
+#         return
+
+#     await interaction.response.send_message(
+#         f"{entity['name']}"
+#         f"[{entity['icon']}] "
+#         f"{entity['hp']}hp\n"
+#         f"> {entity['atk']}\n"
+#         f"({entity['desc']})"
+#     )
 
 webserver.keep_alive()
 client.run(TOKEN)
