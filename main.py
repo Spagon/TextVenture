@@ -389,14 +389,14 @@ async def load_entity(interaction: discord.Interaction, name: str, current_hp: O
         "hp": current_hp if current_hp is not None else entity["hp"]
     }
 
-    dupe_count = 0
+    dupe_count = 1
 
     for i, e in enumerate(entities, start=1):
         if battle_entity['name'] == e['name']:
             dupe_count += 1
 
-    if dupe_count != 0:
-        battle_entity["name"].append("({dupe_count})")
+    if dupe_count != 1:
+        battle_entity["name"] += f" ({dupe_count})"
 
     # Add to battlefield list (e.g., per user or globally)
     if user_id not in battlefield_entities:
